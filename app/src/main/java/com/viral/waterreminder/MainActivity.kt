@@ -1,5 +1,6 @@
 package com.viral.waterreminder
 
+import android.app.Activity
 import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
@@ -18,68 +19,70 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
-import androidx.appcompat.app.Activity
 
 class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val box = LinearLayout(this).apply {
+        val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setPadding(40, 80, 40, 80)
+            setPadding(48, 80, 48, 80)
         }
 
         val title = TextView(this).apply {
             text = "Viral's Anime Water Reminder 💧"
             textSize = 24f
             gravity = Gravity.CENTER
+            setTextColor(Color.rgb(24, 50, 74))
         }
 
-        val permissionButton = Button(this).apply {
+        val allowOverlay = Button(this).apply {
             text = "1. Allow floating character"
         }
 
-        val startButton = Button(this).apply {
+        val startHourly = Button(this).apply {
             text = "2. Start hourly reminders"
         }
 
-        val testButton = Button(this).apply {
+        val testNow = Button(this).apply {
             text = "Test floating reminder now"
         }
 
-        box.addView(title)
-        box.addView(permissionButton)
-        box.addView(startButton)
-        box.addView(testButton)
+        root.addView(title)
+        root.addView(allowOverlay)
+        root.addView(startHourly)
+        root.addView(testNow)
+        setContentView(root)
 
-        setContentView(box)
-
-        permissionButton.setOnClickListener {
+        allowOverlay.setOnClickListener {
             if (!Settings.canDrawOverlays(this@MainActivity)) {
-                val intent = Intent(
-                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    Uri.parse("package:$packageName")
+                startActivity(
+                    Intent(
+                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:$packageName")
+                    )
                 )
-                startActivity(intent)
+            } else {
+                Toast.makeText(
+                    this@MainActivity,
+                    "Floating permission is already enabled",
+                    Toast.LENGTH_SHORT
+                ).show()
             }
         }
 
-        startButton.setOnClickListener {
-            ReminderScheduler.schedule(
-                this@MainActivity,
-                60 * 60 * 1000L
-            )
-
+        startHourly.setOnClickListener {
+            ReminderScheduler.scheduleHourly(this@MainActivity)
             Toast.makeText(
                 this@MainActivity,
-                "Hourly reminders started",
+                "Hourly water reminders started",
                 Toast.LENGTH_SHORT
             ).show()
         }
 
-        testButton.setOnClickListener {
+        testNow.setOnClickListener {
             if (Settings.canDrawOverlays(this@MainActivity)) {
                 Overlay.show(this@MainActivity)
             } else {
@@ -94,8 +97,14 @@ class MainActivity : Activity() {
 }
 
 object ReminderScheduler {
+    private const val REQUEST_CODE = 7001
+    private const val ONE_HOUR_MS = 60L * 60L * 1000L
 
-    fun schedule(context: Context, delay: Long) {
+    fun scheduleHourly(context: Context) {
+        schedule(context, ONE_HOUR_MS)
+    }
+
+    fun schedule(context: Context, delayMs: Long) {
         val alarmManager =
             context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
@@ -103,12 +112,12 @@ object ReminderScheduler {
 
         val pendingIntent = PendingIntent.getBroadcast(
             context,
-            7,
+            REQUEST_CODE,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val triggerTime = System.currentTimeMillis() + delay
+        val triggerAt = System.currentTimeMillis() + delayMs
 
         try {
             if (
@@ -117,20 +126,20 @@ object ReminderScheduler {
             ) {
                 alarmManager.setAndAllowWhileIdle(
                     AlarmManager.RTC_WAKEUP,
-                    triggerTime,
+                    triggerAt,
                     pendingIntent
                 )
             } else {
                 alarmManager.setExactAndAllowWhileIdle(
                     AlarmManager.RTC_WAKEUP,
-                    triggerTime,
+                    triggerAt,
                     pendingIntent
                 )
             }
         } catch (_: SecurityException) {
             alarmManager.setAndAllowWhileIdle(
                 AlarmManager.RTC_WAKEUP,
-                triggerTime,
+                triggerAt,
                 pendingIntent
             )
         }
@@ -138,39 +147,27 @@ object ReminderScheduler {
 }
 
 class ReminderReceiver : BroadcastReceiver() {
-
     override fun onReceive(context: Context, intent: Intent) {
         if (Settings.canDrawOverlays(context)) {
             Overlay.show(context)
         }
-
-        ReminderScheduler.schedule(
-            context,
-            60 * 60 * 1000L
-        )
+        ReminderScheduler.scheduleHourly(context)
     }
 }
 
 class BootReceiver : BroadcastReceiver() {
-
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
-            ReminderScheduler.schedule(
-                context,
-                60 * 60 * 1000L
-            )
+            ReminderScheduler.scheduleHourly(context)
         }
     }
 }
 
 object Overlay {
-
     private var currentView: View? = null
 
     fun show(context: Context) {
-        if (currentView != null || !Settings.canDrawOverlays(context)) {
-            return
-        }
+        if (currentView != null || !Settings.canDrawOverlays(context)) return
 
         val windowManager =
             context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -192,9 +189,11 @@ object Overlay {
         val image = ImageView(context).apply {
             setImageResource(R.drawable.anime_avatar)
             adjustViewBounds = true
+            scaleType = ImageView.ScaleType.FIT_CENTER
         }
 
         val buttonRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
         }
 
@@ -210,12 +209,7 @@ object Overlay {
         buttonRow.addView(snoozeButton)
 
         card.addView(message)
-
-        card.addView(
-            image,
-            LinearLayout.LayoutParams(600, 700)
-        )
-
+        card.addView(image, LinearLayout.LayoutParams(600, 700))
         card.addView(buttonRow)
 
         val params = WindowManager.LayoutParams(
@@ -237,7 +231,6 @@ object Overlay {
                 } catch (_: Exception) {
                 }
             }
-
             currentView = null
         }
 
@@ -247,11 +240,7 @@ object Overlay {
 
         snoozeButton.setOnClickListener {
             removeOverlay()
-
-            ReminderScheduler.schedule(
-                context,
-                10 * 60 * 1000L
-            )
+            ReminderScheduler.schedule(context, 10L * 60L * 1000L)
         }
 
         currentView = card
